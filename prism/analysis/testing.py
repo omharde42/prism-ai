@@ -39,7 +39,8 @@ class TestingAnalyzer:
             is_test_file = any(re.search(pat, path) for pat in TEST_FILE_PATTERNS)
 
             if is_test_file:
-                test_files_changed.append(fdiff)
+                if not fdiff.is_deleted:
+                    test_files_changed.append(fdiff)
             else:
                 ext = path.split(".")[-1] if "." in path else ""
                 if ext in ["py", "ts", "js", "go", "java", "rs", "cpp", "c", "rb", "php", "cs"]:

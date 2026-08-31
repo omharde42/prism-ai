@@ -2,6 +2,7 @@ import datetime
 import logging
 from typing import Dict, Any, Optional
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 
 from prism.database.models import Repository, PullRequest, AnalysisRun, Finding, RiskScore
 from prism.analysis.diff_analyzer import DiffAnalyzer
@@ -46,29 +47,37 @@ class AnalysisOrchestrator:
             self.db.commit()
             self.db.refresh(repo)
 
-        # 2. Ensure PullRequest record
+        # 2. Ensure PullRequest record with concurrency protection
         pr = self.db.query(PullRequest).filter(
             PullRequest.repository_id == repo.id,
             PullRequest.pr_number == pr_number
         ).first()
 
         if not pr:
-            pr = PullRequest(
-                repository_id=repo.id,
-                pr_number=pr_number,
-                title=pr_title,
-                author=pr_author,
-                head_branch=head_branch,
-                base_branch=base_branch,
-            )
-            self.db.add(pr)
+            try:
+                pr = PullRequest(
+                    repository_id=repo.id,
+                    pr_number=pr_number,
+                    title=pr_title,
+                    author=pr_author,
+                    head_branch=head_branch,
+                    base_branch=base_branch,
+                )
+                self.db.add(pr)
+                self.db.commit()
+            except IntegrityError:
+                self.db.rollback()
+                pr = self.db.query(PullRequest).filter(
+                    PullRequest.repository_id == repo.id,
+                    PullRequest.pr_number == pr_number
+                ).first()
         else:
             pr.title = pr_title
             pr.head_branch = head_branch
             pr.base_branch = base_branch
             pr.updated_at = datetime.datetime.utcnow()
+            self.db.commit()
 
-        self.db.commit()
         self.db.refresh(pr)
 
         # 3. Create AnalysisRun record

@@ -22,9 +22,9 @@ class GitHubService:
     @staticmethod
     def verify_webhook_signature(payload_body: bytes, signature_header: Optional[str], secret: Optional[str] = None) -> bool:
         """Verify secret signature for GitHub Webhooks (X-Hub-Signature-256)."""
-        secret_key = secret or settings.GITHUB_WEBHOOK_SECRET
+        secret_key = secret if secret is not None else settings.GITHUB_WEBHOOK_SECRET
         if not secret_key:
-            return True  # If no secret configured, skip verification
+            return False  # Fail closed if no secret is configured
         if not signature_header:
             return False
 

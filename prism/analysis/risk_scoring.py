@@ -77,6 +77,9 @@ class RiskScoringEngine:
 
         # 5. AI score modifier
         score += ai_modifier
+        if ai_modifier != 0:
+            sign = f"+{ai_modifier}" if ai_modifier > 0 else str(ai_modifier)
+            drivers.append(f"AI intelligence risk adjustment ({sign} points)")
 
         # Clamp score between 0 and 100
         final_score = max(0.0, min(100.0, round(score, 1)))

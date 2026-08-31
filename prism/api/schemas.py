@@ -22,6 +22,7 @@ class FindingSchema(BaseModel):
 class AnalysisRunResponse(BaseModel):
     id: int
     pull_request_id: int
+    pr_number: Optional[int] = None
     commit_sha: str
     status: str
     overall_risk_score: float

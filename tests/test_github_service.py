@@ -19,3 +19,6 @@ def test_verify_webhook_signature():
 
     # Missing signature when secret is set
     assert GitHubService.verify_webhook_signature(body, None, secret=secret) is False
+
+    # Missing secret key returns False (fails closed)
+    assert GitHubService.verify_webhook_signature(body, valid_sig, secret=None) is False

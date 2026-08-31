@@ -8,6 +8,7 @@ from sqlalchemy import (
     Text,
     ForeignKey,
     JSON,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
 from prism.database.session import Base
@@ -28,6 +29,7 @@ class Repository(Base):
 
 class PullRequest(Base):
     __tablename__ = "pull_requests"
+    __table_args__ = (UniqueConstraint("repository_id", "pr_number", name="uq_repository_pr_number"),)
 
     id = Column(Integer, primary_key=True, index=True)
     repository_id = Column(Integer, ForeignKey("repositories.id"), nullable=False, index=True)

@@ -83,9 +83,11 @@ async def trigger_manual_analysis(
     )
 
     drivers = run.risk_score.drivers if run.risk_score else []
+    pr_num = run.pull_request.pr_number if run.pull_request else None
     return AnalysisRunResponse(
         id=run.id,
         pull_request_id=run.pull_request_id,
+        pr_number=pr_num,
         commit_sha=run.commit_sha,
         status=run.status,
         overall_risk_score=run.overall_risk_score,
@@ -105,9 +107,11 @@ def get_analysis_by_id(analysis_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Analysis run not found")
 
     drivers = run.risk_score.drivers if run.risk_score else []
+    pr_num = run.pull_request.pr_number if run.pull_request else None
     return AnalysisRunResponse(
         id=run.id,
         pull_request_id=run.pull_request_id,
+        pr_number=pr_num,
         commit_sha=run.commit_sha,
         status=run.status,
         overall_risk_score=run.overall_risk_score,

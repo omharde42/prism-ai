@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     # GitHub App / Webhook Credentials
     GITHUB_APP_ID: Optional[str] = None
     GITHUB_PRIVATE_KEY: Optional[str] = None
-    GITHUB_WEBHOOK_SECRET: Optional[str] = "prism_secret_token"
+    GITHUB_WEBHOOK_SECRET: Optional[str] = None
     GITHUB_TOKEN: Optional[str] = None
 
     # LLM Service Configuration

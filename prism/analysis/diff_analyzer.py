@@ -42,10 +42,16 @@ class DiffAnalyzer:
 
             lines = raw_file.splitlines()
             header_line = lines[0]
-            paths = re.findall(r"a/(.*?) b/(.*)", header_line)
 
-            old_path = paths[0][0] if paths else "unknown"
-            new_path = paths[0][1] if paths else "unknown"
+            # Support quoted or unquoted git diff headers (e.g. "a/foo bar" "b/foo bar" or a/file b/file)
+            quoted_match = re.search(r'^(?:"?a/(.*?)"?)\s+(?:"?b/(.*?)"?)$', header_line)
+            if quoted_match:
+                old_path = quoted_match.group(1).strip('"')
+                new_path = quoted_match.group(2).strip('"')
+            else:
+                paths = re.findall(r"a/(.*?) b/(.*)", header_line)
+                old_path = paths[0][0] if paths else "unknown"
+                new_path = paths[0][1] if paths else "unknown"
 
             file_diff = FileDiff(old_path=old_path, new_path=new_path)
 
@@ -87,12 +93,12 @@ class DiffAnalyzer:
                     continue
 
                 if current_chunk is not None:
-                    if line.startswith("+") and not line.startswith("+++"):
+                    if line.startswith("+"):
                         content = line[1:]
                         current_chunk.added_lines.append((current_new_line_no, content))
                         file_diff.additions += 1
                         current_new_line_no += 1
-                    elif line.startswith("-") and not line.startswith("---"):
+                    elif line.startswith("-"):
                         content = line[1:]
                         current_chunk.deleted_lines.append((current_old_line_no, content))
                         file_diff.deletions += 1

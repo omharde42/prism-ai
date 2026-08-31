@@ -58,7 +58,7 @@ class SecurityAnalyzer:
                                 description="Found suspicious credential or API key hardcoded in added source lines.",
                                 impact="Exposing secrets in repository history allows unauthorized account access and potential breach.",
                                 recommendation="Move credentials to environment variables or secret management services (Vault, AWS Secrets Manager).",
-                                evidence=s_line[:80] + ("..." if len(s_line) > 80 else "")
+                                evidence="[REDACTED SECRET]"
                             ))
 
                     # 2. Injection Vulnerabilities
@@ -78,20 +78,26 @@ class SecurityAnalyzer:
                             ))
 
                     # 3. Path Traversal
+                    FILE_SINK_PATTERNS = [
+                        r"open\s*\(", r"read_file\b", r"write_file\b", r"send_file\b",
+                        r"fs\.(readFile|writeFile|createReadStream|createWriteStream)",
+                        r"file_get_contents\b", r"fopen\b"
+                    ]
                     for pattern, title in PATH_TRAVERSAL_PATTERNS:
                         if re.search(pattern, s_line) and "test" not in fdiff.new_path.lower():
-                            findings.append(FindingDTO(
-                                category="security",
-                                severity="high",
-                                confidence=0.8,
-                                file=fdiff.new_path,
-                                line=line_no,
-                                title=title,
-                                description="Relative path traversal sequences detected in source file.",
-                                impact="Allows unauthorized reading or writing of files outside intended directories.",
-                                recommendation="Sanitize user-provided filenames using `os.path.basename` or path validation logic.",
-                                evidence=s_line
-                            ))
+                            if any(re.search(sink, s_line) for sink in FILE_SINK_PATTERNS):
+                                findings.append(FindingDTO(
+                                    category="security",
+                                    severity="high",
+                                    confidence=0.8,
+                                    file=fdiff.new_path,
+                                    line=line_no,
+                                    title=title,
+                                    description="Relative path traversal sequence reaching a file operation sink.",
+                                    impact="Allows unauthorized reading or writing of files outside intended directories.",
+                                    recommendation="Sanitize user-provided filenames using `os.path.basename` or path validation logic.",
+                                    evidence=s_line
+                                ))
 
                     # 4. Authentication logic modification alert
                     if is_auth_file and any(kw in s_line.lower() for kw in ["token", "verify", "role", "admin", "authorize"]):

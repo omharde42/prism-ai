@@ -36,7 +36,7 @@ class CodeQualityAnalyzer:
 
                     # 2. Console/Print debugging statements in production code
                     if not any(fdiff.new_path.endswith(ext) for ext in [".md", ".json", ".yaml", ".txt"]):
-                        if re.search(r"console\.log\(", s_line) or re.search(r"print\(", s_line) and "test" not in fdiff.new_path.lower():
+                        if (re.search(r"console\.log\(", s_line) or re.search(r"print\(", s_line)) and "test" not in fdiff.new_path.lower():
                             findings.append(FindingDTO(
                                 category="code_quality",
                                 severity="low",

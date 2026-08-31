@@ -222,9 +222,8 @@
     }
 
     function renderDashboard(run) {
-      if (run.metrics) {
-        document.getElementById('repo-pr-info').innerText = `PR #${run.pull_request_id || 1} • SHA: ${(run.commit_sha || '').substring(0, 7)}`;
-      }
+      const prNum = run.pr_number || run.pull_request_id || 1;
+      document.getElementById('repo-pr-info').innerText = `PR #${prNum} • SHA: ${(run.commit_sha || '').substring(0, 7)}`;
       document.getElementById('risk-score-val').innerText = Math.round(run.overall_risk_score) + "/100";
       const badge = document.getElementById('risk-level-badge');
       badge.innerText = run.risk_level;
@@ -249,30 +248,95 @@
       container.innerHTML = '';
 
       if (findings.length === 0) {
-        container.innerHTML = `<div class="card" style="text-align: center; color: var(--text-muted);">No findings detected for this category! ✨</div>`;
+        const emptyDiv = document.createElement('div');
+        emptyDiv.className = 'card';
+        emptyDiv.style.textAlign = 'center';
+        emptyDiv.style.color = 'var(--text-muted)';
+        emptyDiv.textContent = 'No findings detected for this category! ✨';
+        container.appendChild(emptyDiv);
         return;
       }
 
       findings.forEach(f => {
-        const div = document.createElement('div');
-        div.className = `finding-card severity-${f.severity.toLowerCase()}`;
-        div.innerHTML = `
-          <div class="finding-header">
-            <span class="finding-title">${f.title}</span>
-            <div>
-              <span class="meta-tag" style="text-transform: uppercase;">${f.category}</span>
-              <span class="meta-tag" style="color: var(--accent-blue);">Confidence ${(f.confidence * 100).toFixed(0)}%</span>
-            </div>
-          </div>
-          <div style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 0.5rem;">
-            ${f.file ? `📁 ${f.file}` : ''} ${f.line ? ` line ${f.line}` : ''}
-          </div>
-          <p style="margin: 0.5rem 0;">${f.description}</p>
-          ${f.impact ? `<div style="margin-top: 0.5rem; font-size: 0.875rem;"><strong style="color:#f8fafc;">Impact:</strong> <span style="color: var(--text-muted);">${f.impact}</span></div>` : ''}
-          ${f.recommendation ? `<div style="margin-top: 0.25rem; font-size: 0.875rem;"><strong style="color:var(--accent-blue);">Recommendation:</strong> <span style="color: var(--text-muted);">${f.recommendation}</span></div>` : ''}
-          ${f.evidence ? `<div class="evidence-box">${f.evidence}</div>` : ''}
-        `;
-        container.appendChild(div);
+        const card = document.createElement('div');
+        card.className = `finding-card severity-${(f.severity || 'low').toLowerCase()}`;
+
+        const header = document.createElement('div');
+        header.className = 'finding-header';
+
+        const title = document.createElement('span');
+        title.className = 'finding-title';
+        title.textContent = f.title || '';
+
+        const tagsDiv = document.createElement('div');
+
+        const catTag = document.createElement('span');
+        catTag.className = 'meta-tag';
+        catTag.style.textTransform = 'uppercase';
+        catTag.textContent = f.category || '';
+
+        const confTag = document.createElement('span');
+        confTag.className = 'meta-tag';
+        confTag.style.color = 'var(--accent-blue)';
+        confTag.textContent = `Confidence ${((f.confidence || 0) * 100).toFixed(0)}%`;
+
+        tagsDiv.appendChild(catTag);
+        tagsDiv.appendChild(confTag);
+        header.appendChild(title);
+        header.appendChild(tagsDiv);
+
+        const locDiv = document.createElement('div');
+        locDiv.style.color = 'var(--text-muted)';
+        locDiv.style.fontSize = '0.9rem';
+        locDiv.style.marginBottom = '0.5rem';
+        locDiv.textContent = `${f.file ? '📁 ' + f.file : ''} ${f.line ? 'line ' + f.line : ''}`;
+
+        const descP = document.createElement('p');
+        descP.style.margin = '0.5rem 0';
+        descP.textContent = f.description || '';
+
+        card.appendChild(header);
+        card.appendChild(locDiv);
+        card.appendChild(descP);
+
+        if (f.impact) {
+          const impactDiv = document.createElement('div');
+          impactDiv.style.marginTop = '0.5rem';
+          impactDiv.style.fontSize = '0.875rem';
+          const impactLabel = document.createElement('strong');
+          impactLabel.style.color = '#f8fafc';
+          impactLabel.textContent = 'Impact: ';
+          const impactText = document.createElement('span');
+          impactText.style.color = 'var(--text-muted)';
+          impactText.textContent = f.impact;
+          impactDiv.appendChild(impactLabel);
+          impactDiv.appendChild(impactText);
+          card.appendChild(impactDiv);
+        }
+
+        if (f.recommendation) {
+          const recDiv = document.createElement('div');
+          recDiv.style.marginTop = '0.25rem';
+          recDiv.style.fontSize = '0.875rem';
+          const recLabel = document.createElement('strong');
+          recLabel.style.color = 'var(--accent-blue)';
+          recLabel.textContent = 'Recommendation: ';
+          const recText = document.createElement('span');
+          recText.style.color = 'var(--text-muted)';
+          recText.textContent = f.recommendation;
+          recDiv.appendChild(recLabel);
+          recDiv.appendChild(recText);
+          card.appendChild(recDiv);
+        }
+
+        if (f.evidence) {
+          const evDiv = document.createElement('div');
+          evDiv.className = 'evidence-box';
+          evDiv.textContent = f.evidence;
+          card.appendChild(evDiv);
+        }
+
+        container.appendChild(card);
       });
     }
 

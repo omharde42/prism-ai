@@ -34,6 +34,27 @@ def test_diff_analyzer():
     assert diffs[0].additions > 0
 
 
+def test_diff_analyzer_quoted_paths_and_plus_plus():
+    quoted_diff = '''diff --git "a/src/my file.py" "b/src/my file.py"
+new file mode 100644
+index 0000000..1234567
+--- /dev/null
++++ "b/src/my file.py"
+@@ -1,2 +1,2 @@
+-old_var = 1
++--new_var = 2
+++++added_var = 3
+'''
+    diffs = DiffAnalyzer.parse_patch(quoted_diff)
+    assert len(diffs) == 1
+    assert diffs[0].new_path == "src/my file.py"
+    assert diffs[0].additions == 2
+    assert diffs[0].deletions == 1
+    chunk = diffs[0].chunks[0]
+    assert chunk.added_lines[0] == (1, "--new_var = 2")
+    assert chunk.added_lines[1] == (2, "+++added_var = 3")
+
+
 def test_analyzers_on_sample_diff():
     diffs = DiffAnalyzer.parse_patch(SAMPLE_DIFF)
 
