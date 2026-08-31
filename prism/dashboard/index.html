@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PRISM AI — Engineering Risk Intelligence</title>
+  <style>
+    :root {
+      --bg-dark: #0f172a;
+      --card-bg: #1e293b;
+      --card-border: #334155;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --accent-blue: #38bdf8;
+      --risk-low: #10b981;
+      --risk-mod: #3b82f6;
+      --risk-elev: #f59e0b;
+      --risk-high: #f97316;
+      --risk-crit: #ef4444;
+    }
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+    }
+    .header {
+      padding: 1rem 2rem;
+      border-bottom: 1px solid var(--card-border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background-color: #0b1120;
+    }
+    .logo {
+      font-size: 1.25rem;
+      font-weight: 700;
+      letter-spacing: 1px;
+      color: var(--accent-blue);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .container {
+      max-width: 1300px;
+      margin: 2rem auto;
+      padding: 0 1.5rem;
+    }
+    .grid-overview {
+      display: grid;
+      grid-template-columns: 1fr 2fr;
+      gap: 1.5rem;
+      margin-bottom: 2rem;
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 1.5rem;
+    }
+    .risk-score-display {
+      text-align: center;
+    }
+    .score-circle {
+      font-size: 3.5rem;
+      font-weight: 800;
+      line-height: 1;
+      margin: 1rem 0;
+    }
+    .risk-badge {
+      display: inline-block;
+      padding: 0.25rem 0.75rem;
+      border-radius: 9999px;
+      font-weight: 700;
+      font-size: 0.875rem;
+      text-transform: uppercase;
+    }
+    .badge-CRITICAL { background: #450a0a; color: var(--risk-crit); border: 1px solid var(--risk-crit); }
+    .badge-HIGH { background: #431407; color: var(--risk-high); border: 1px solid var(--risk-high); }
+    .badge-ELEVATED { background: #451a03; color: var(--risk-elev); border: 1px solid var(--risk-elev); }
+    .badge-MODERATE { background: #172554; color: var(--risk-mod); border: 1px solid var(--risk-mod); }
+    .badge-LOW { background: #064e3b; color: var(--risk-low); border: 1px solid var(--risk-low); }
+
+    .drivers-list {
+      margin-top: 1rem;
+      padding-left: 1.2rem;
+      color: var(--text-muted);
+    }
+    .drivers-list li {
+      margin-bottom: 0.4rem;
+    }
+    .filter-bar {
+      display: flex;
+      gap: 0.75rem;
+      margin-bottom: 1.5rem;
+    }
+    .filter-btn {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      color: var(--text-muted);
+      padding: 0.5rem 1rem;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 500;
+    }
+    .filter-btn.active {
+      background: var(--accent-blue);
+      color: #000;
+      border-color: var(--accent-blue);
+    }
+    .finding-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-left: 4px solid var(--card-border);
+      border-radius: 6px;
+      padding: 1.25rem;
+      margin-bottom: 1rem;
+    }
+    .finding-card.severity-critical { border-left-color: var(--risk-crit); }
+    .finding-card.severity-high { border-left-color: var(--risk-high); }
+    .finding-card.severity-medium { border-left-color: var(--risk-elev); }
+    .finding-card.severity-low { border-left-color: var(--risk-low); }
+
+    .finding-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.5rem;
+    }
+    .finding-title {
+      font-weight: 600;
+      font-size: 1.1rem;
+    }
+    .evidence-box {
+      background: #090d16;
+      border: 1px solid #1e293b;
+      padding: 0.75rem;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 0.875rem;
+      color: #e2e8f0;
+      margin-top: 0.75rem;
+      white-space: pre-wrap;
+    }
+    .meta-tag {
+      font-size: 0.8rem;
+      background: #0f172a;
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      color: var(--text-muted);
+      margin-right: 0.5rem;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="logo">
+      <span>🔷 PRISM</span>
+      <span style="font-size: 0.85rem; color: var(--text-muted); font-weight: normal;">Pull Request Engineering Intelligence</span>
+    </div>
+    <div id="repo-pr-info" style="color: var(--text-muted); font-size: 0.9rem;">
+      Loading PR info...
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="grid-overview">
+      <div class="card risk-score-display">
+        <div style="text-transform: uppercase; font-size: 0.8rem; letter-spacing: 1px; color: var(--text-muted);">Overall Risk Score</div>
+        <div class="score-circle" id="risk-score-val">--</div>
+        <div id="risk-level-badge" class="risk-badge">ANALYZING</div>
+        <div style="margin-top: 1.5rem; text-align: left;">
+          <strong style="font-size: 0.9rem;">Recommendation:</strong>
+          <div id="merge-rec" style="font-size: 1.1rem; font-weight: bold; color: var(--accent-blue); margin-top: 0.25rem;">PENDING</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-top: 0;">AI Engineering Risk Summary</h3>
+        <p id="ai-summary" style="color: var(--text-muted); line-height: 1.5;">Fetching analysis summary...</p>
+
+        <h4 style="margin-bottom: 0.5rem;">Key Risk Drivers</h4>
+        <ul id="drivers-list" class="drivers-list">
+          <li>Analyzing diff patterns...</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="filter-bar">
+      <button class="filter-btn active" onclick="filterCategory('all', this)">All Findings</button>
+      <button class="filter-btn" onclick="filterCategory('security', this)">Security</button>
+      <button class="filter-btn" onclick="filterCategory('code_quality', this)">Code Quality</button>
+      <button class="filter-btn" onclick="filterCategory('testing', this)">Testing</button>
+      <button class="filter-btn" onclick="filterCategory('complexity', this)">Complexity</button>
+    </div>
+
+    <div id="findings-container">
+      <!-- Finding cards populated via JavaScript -->
+    </div>
+  </div>
+
+  <script>
+    let currentRun = null;
+
+    async function loadAnalysis() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const analysisId = urlParams.get('id') || '1';
+
+      try {
+        const resp = await fetch(`/api/analyses/${analysisId}`);
+        if (!resp.ok) {
+          document.getElementById('ai-summary').innerText = "No analysis found with ID " + analysisId + ". Run a PR analysis first!";
+          return;
+        }
+        currentRun = await resp.json();
+        renderDashboard(currentRun);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    function renderDashboard(run) {
+      if (run.metrics) {
+        document.getElementById('repo-pr-info').innerText = `PR #${run.pull_request_id || 1} • SHA: ${(run.commit_sha || '').substring(0, 7)}`;
+      }
+      document.getElementById('risk-score-val').innerText = Math.round(run.overall_risk_score) + "/100";
+      const badge = document.getElementById('risk-level-badge');
+      badge.innerText = run.risk_level;
+      badge.className = `risk-badge badge-${run.risk_level}`;
+
+      document.getElementById('merge-rec').innerText = run.merge_recommendation;
+      document.getElementById('ai-summary').innerText = run.summary || "No summary available.";
+
+      const driversUl = document.getElementById('drivers-list');
+      driversUl.innerHTML = '';
+      (run.drivers || []).forEach(d => {
+        const li = document.createElement('li');
+        li.innerText = d;
+        driversUl.appendChild(li);
+      });
+
+      renderFindings(run.findings || []);
+    }
+
+    function renderFindings(findings) {
+      const container = document.getElementById('findings-container');
+      container.innerHTML = '';
+
+      if (findings.length === 0) {
+        container.innerHTML = `<div class="card" style="text-align: center; color: var(--text-muted);">No findings detected for this category! ✨</div>`;
+        return;
+      }
+
+      findings.forEach(f => {
+        const div = document.createElement('div');
+        div.className = `finding-card severity-${f.severity.toLowerCase()}`;
+        div.innerHTML = `
+          <div class="finding-header">
+            <span class="finding-title">${f.title}</span>
+            <div>
+              <span class="meta-tag" style="text-transform: uppercase;">${f.category}</span>
+              <span class="meta-tag" style="color: var(--accent-blue);">Confidence ${(f.confidence * 100).toFixed(0)}%</span>
+            </div>
+          </div>
+          <div style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 0.5rem;">
+            ${f.file ? `📁 ${f.file}` : ''} ${f.line ? ` line ${f.line}` : ''}
+          </div>
+          <p style="margin: 0.5rem 0;">${f.description}</p>
+          ${f.impact ? `<div style="margin-top: 0.5rem; font-size: 0.875rem;"><strong style="color:#f8fafc;">Impact:</strong> <span style="color: var(--text-muted);">${f.impact}</span></div>` : ''}
+          ${f.recommendation ? `<div style="margin-top: 0.25rem; font-size: 0.875rem;"><strong style="color:var(--accent-blue);">Recommendation:</strong> <span style="color: var(--text-muted);">${f.recommendation}</span></div>` : ''}
+          ${f.evidence ? `<div class="evidence-box">${f.evidence}</div>` : ''}
+        `;
+        container.appendChild(div);
+      });
+    }
+
+    function filterCategory(category, btn) {
+      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+
+      if (!currentRun || !currentRun.findings) return;
+
+      if (category === 'all') {
+        renderFindings(currentRun.findings);
+      } else {
+        const filtered = currentRun.findings.filter(f => f.category.toLowerCase() === category.toLowerCase());
+        renderFindings(filtered);
+      }
+    }
+
+    loadAnalysis();
+  </script>
+</body>
+</html>
