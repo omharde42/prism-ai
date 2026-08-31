@@ -17,6 +17,20 @@ async def test_ai_reviewer_fallback():
     assert "critical" in res["summary"]
 
 
+def test_ai_response_normalization_clamping():
+    reviewer = AIReviewer(api_key=None)
+
+    # Test out-of-range modifier clamping
+    normalized_high = reviewer._validate_and_normalize_ai_response({"risk_score_modifier": 100})
+    assert normalized_high["risk_score_modifier"] == 20
+
+    normalized_low = reviewer._validate_and_normalize_ai_response({"risk_score_modifier": -50})
+    assert normalized_low["risk_score_modifier"] == -10
+
+    normalized_valid = reviewer._validate_and_normalize_ai_response({"risk_score_modifier": 5})
+    assert normalized_valid["risk_score_modifier"] == 5
+
+
 def test_deduplicator():
     f1 = FindingDTO(category="security", severity="critical", confidence=0.9, title="Secret Leak", description="Desc 1", file="auth.py", line=10)
     f2 = FindingDTO(category="security", severity="critical", confidence=0.95, title="Secret Leak", description="Desc 2", file="auth.py", line=10)

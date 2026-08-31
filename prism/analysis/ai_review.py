@@ -118,7 +118,11 @@ Respond strictly in valid JSON format matching this schema:
     def _validate_and_normalize_ai_response(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Validates AI LLM output schema."""
         summary = data.get("summary", "AI review completed.")
-        modifier = int(data.get("risk_score_modifier", 0))
+        try:
+            modifier = int(data.get("risk_score_modifier", 0))
+        except (ValueError, TypeError):
+            modifier = 0
+        modifier = max(-10, min(20, modifier))
         rec = data.get("merge_recommendation", "REVIEW_REQUIRED")
         if rec not in ["APPROVE", "REVIEW_REQUIRED", "BLOCK"]:
             rec = "REVIEW_REQUIRED"
