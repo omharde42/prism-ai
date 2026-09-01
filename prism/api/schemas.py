@@ -1,5 +1,5 @@
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class FindingSchema(BaseModel):
@@ -7,16 +7,15 @@ class FindingSchema(BaseModel):
     category: str
     severity: str
     confidence: float
-    file: Optional[str]
-    line: Optional[int]
+    file: Optional[str] = None
+    line: Optional[int] = None
     title: str
     description: str
-    impact: Optional[str]
-    recommendation: Optional[str]
-    evidence: Optional[str]
+    impact: Optional[str] = None
+    recommendation: Optional[str] = None
+    evidence: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AnalysisRunResponse(BaseModel):
@@ -27,14 +26,13 @@ class AnalysisRunResponse(BaseModel):
     status: str
     overall_risk_score: float
     risk_level: str
-    summary: Optional[str]
+    summary: Optional[str] = None
     merge_recommendation: str
-    metrics: Optional[dict]
+    metrics: Optional[dict] = None
     drivers: List[str] = []
     findings: List[FindingSchema] = []
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ManualTriggerRequest(BaseModel):
@@ -47,3 +45,9 @@ class ManualTriggerRequest(BaseModel):
     base_branch: str
     commit_sha: str
     diff: str
+
+
+class GitHubAnalyzeRequest(BaseModel):
+    owner: str
+    repo: str
+    pr_number: int

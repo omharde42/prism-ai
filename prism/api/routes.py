@@ -5,9 +5,81 @@ from sqlalchemy.orm import Session
 from prism.database import get_db, PullRequest, AnalysisRun, Repository
 from prism.services.github import GitHubService
 from prism.analysis.orchestrator import AnalysisOrchestrator
-from prism.api.schemas import AnalysisRunResponse, ManualTriggerRequest
+from prism.api.schemas import AnalysisRunResponse, ManualTriggerRequest, GitHubAnalyzeRequest
 
 router = APIRouter()
+
+
+@router.get("/github/repos")
+async def list_github_repositories():
+    """Fetch user accessible GitHub repositories."""
+    gh_service = GitHubService()
+    try:
+        repos = await gh_service.get_user_repositories()
+        return repos
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch repositories: {str(e)}")
+
+
+@router.get("/github/repos/{owner}/{repo}/pulls")
+async def list_github_pull_requests(owner: str, repo: str, state: str = "open"):
+    """Fetch Pull Requests for a given repository."""
+    gh_service = GitHubService()
+    try:
+        prs = await gh_service.get_repository_pull_requests(owner, repo, state=state)
+        return prs
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch pull requests: {str(e)}")
+
+
+@router.post("/analyze/github", response_model=AnalysisRunResponse)
+async def analyze_github_pr(
+    req: GitHubAnalyzeRequest,
+    db: Session = Depends(get_db),
+):
+    """Fetch real GitHub PR data and run full 10-layer PRISM analysis pipeline."""
+    gh_service = GitHubService()
+    try:
+        pr_data = await gh_service.get_pull_request(req.owner, req.repo, req.pr_number)
+        raw_diff = await gh_service.get_pull_request_diff(req.owner, req.repo, req.pr_number)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"GitHub API Error: {str(e)}")
+
+    title = pr_data.get("title", f"PR #{req.pr_number}")
+    author = pr_data.get("user", {}).get("login", "unknown")
+    head_branch = pr_data.get("head", {}).get("ref", "head")
+    base_branch = pr_data.get("base", {}).get("ref", "main")
+    commit_sha = pr_data.get("head", {}).get("sha", "head_sha")
+
+    orchestrator = AnalysisOrchestrator(db=db)
+    run = await orchestrator.run_pipeline(
+        repo_owner=req.owner,
+        repo_name=req.repo,
+        pr_number=req.pr_number,
+        pr_title=title,
+        pr_author=author,
+        head_branch=head_branch,
+        base_branch=base_branch,
+        commit_sha=commit_sha,
+        raw_diff=raw_diff,
+    )
+
+    drivers = run.risk_score.drivers if run.risk_score else []
+    pr_num = run.pull_request.pr_number if run.pull_request else None
+    return AnalysisRunResponse(
+        id=run.id,
+        pull_request_id=run.pull_request_id,
+        pr_number=pr_num,
+        commit_sha=run.commit_sha,
+        status=run.status,
+        overall_risk_score=run.overall_risk_score,
+        risk_level=run.risk_level,
+        summary=run.summary,
+        merge_recommendation=run.merge_recommendation,
+        metrics=run.metrics,
+        drivers=drivers,
+        findings=run.findings,
+    )
 
 
 @router.post("/webhooks/github")
@@ -20,7 +92,6 @@ async def github_webhook(
 ):
     body_bytes = await request.body()
 
-    # Verify signature
     if not GitHubService.verify_webhook_signature(body_bytes, x_hub_signature_256):
         raise HTTPException(status_code=401, detail="Invalid webhook signature")
 

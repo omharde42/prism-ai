@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 class AIReviewer:
-    """AI-powered PR intelligence reasoning engine with schema validation and fallback handling."""
+    """AI-powered PR intelligence reasoning engine with interaction detection, schema validation, and fallback handling."""
 
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or settings.OPENAI_API_KEY
@@ -21,9 +21,11 @@ class AIReviewer:
         pr_metadata: Dict[str, Any],
         raw_diff: str,
         static_findings: List[FindingDTO],
+        source_context: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Sends truncated PR diff and static findings to OpenAI LLM (or fallback heuristic if API key not available).
+        Sends PR metadata, diff, source context, and static findings to OpenAI LLM (or fallback heuristic if API key is not set).
+        Evaluates risk interactions (e.g. Auth + DB Migration + Missing Tests = High Risk).
         Returns structured analysis JSON:
         {
           "summary": str,
@@ -36,7 +38,6 @@ class AIReviewer:
             logger.info("OPENAI_API_KEY not configured. Using heuristic AI fallback analysis.")
             return self._heuristic_fallback(pr_metadata, raw_diff, static_findings)
 
-        # Context truncation to protect token limit
         diff_lines = raw_diff.splitlines()
         if len(diff_lines) > settings.MAX_DIFF_LINES_FOR_AI:
             truncated_diff = "\n".join(diff_lines[: settings.MAX_DIFF_LINES_FOR_AI]) + f"\n... [Truncated {len(diff_lines) - settings.MAX_DIFF_LINES_FOR_AI} lines]"
@@ -45,39 +46,45 @@ class AIReviewer:
 
         findings_summary = [
             {"category": f.category, "severity": f.severity, "title": f.title, "file": f.file}
-            for f in static_findings[:10]
+            for f in static_findings[:15]
         ]
 
-        prompt = f"""You are PRISM, an AI Pull Request Engineering Risk Intelligence Engine.
-Analyze the following PR and produce a structured JSON report.
+        prompt = f"""You are PRISM, an AI Engineering Risk Intelligence Engine.
+Analyze the following Pull Request context and deterministic findings.
 
-PR Title: {pr_metadata.get('title', '')}
+PR Intent / Title: {pr_metadata.get('title', '')}
 Author: {pr_metadata.get('author', '')}
 Branch: {pr_metadata.get('head_branch', '')} -> {pr_metadata.get('base_branch', '')}
 
-Detected Static Findings:
+Deterministic Findings Detected:
 {json.dumps(findings_summary, indent=2)}
+
+Repository Source Context:
+{source_context or 'None provided.'}
 
 PR Raw Diff (Truncated):
 {truncated_diff}
 
+IMPORTANT: Identify interacting risks (e.g., Auth changes + DB migration + missing tests).
+Ensure all findings include actionable, specific recommendations (e.g. "Add an integration test covering an expired token before merging").
+
 Respond strictly in valid JSON format matching this schema:
 {{
-  "summary": "High-level 2-3 sentence engineering risk overview",
+  "summary": "High-level executive risk summary explaining why changes pose risk",
   "risk_score_modifier": 0,
   "merge_recommendation": "APPROVE" | "REVIEW_REQUIRED" | "BLOCK",
   "ai_findings": [
     {{
-      "category": "architecture" | "security" | "code_quality" | "testing" | "complexity",
+      "category": "architecture" | "security" | "code_quality" | "testing" | "complexity" | "dependency",
       "severity": "low" | "medium" | "high" | "critical",
       "confidence": 0.85,
-      "title": "Short issue title",
-      "description": "Clear explanation",
+      "title": "Short title",
+      "description": "Clear explanation of risk",
       "file": "path/to/file",
       "line": 10,
-      "impact": "Production impact",
-      "recommendation": "Actionable fix suggestion",
-      "evidence": "Code snippet"
+      "impact": "Detailed impact explanation",
+      "recommendation": "Specific actionable recommendation",
+      "evidence": "Relevant code snippet"
     }}
   ]
 }}
@@ -162,15 +169,22 @@ Respond strictly in valid JSON format matching this schema:
         critical_count = sum(1 for f in static_findings if f.severity == "critical")
         high_count = sum(1 for f in static_findings if f.severity == "high")
 
-        if critical_count > 0:
+        # Interaction check in heuristic fallback
+        has_auth = any("auth" in (f.file or "").lower() for f in static_findings)
+        has_testing_gap = any(f.category == "testing" for f in static_findings)
+
+        if has_auth and has_testing_gap:
+            summary = "HIGH RISK INTERACTION DETECTED: Authentication modifications combined with missing automated tests pose immediate production security risk."
             rec = "BLOCK"
-            summary = f"PR contains {critical_count} critical issue(s) including security/logic risks that should be resolved before merge."
+        elif critical_count > 0:
+            rec = "BLOCK"
+            summary = f"PR contains {critical_count} critical severity finding(s) that should be resolved prior to merge."
         elif high_count > 0:
             rec = "REVIEW_REQUIRED"
             summary = f"PR contains {high_count} high-priority finding(s) requiring thorough peer review."
         else:
             rec = "APPROVE"
-            summary = "PR changes look clean with no high-severity static risks identified."
+            summary = "PR changes pass all static quality and security risk checks with low risk profile."
 
         return {
             "summary": summary,
