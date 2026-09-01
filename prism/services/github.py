@@ -24,7 +24,7 @@ class GitHubService:
         """Verify secret signature for GitHub Webhooks (X-Hub-Signature-256)."""
         secret_key = secret if secret is not None else settings.GITHUB_WEBHOOK_SECRET
         if not secret_key:
-            return False  # Fail closed if no secret is configured
+            return False
         if not signature_header:
             return False
 
@@ -35,6 +35,25 @@ class GitHubService:
         mac = hmac.new(secret_key.encode("utf-8"), msg=payload_body, digestmod=hashlib.sha256)
         expected_signature = mac.hexdigest()
         return hmac.compare_digest(expected_signature, signature)
+
+    async def get_user_repositories(self) -> List[Dict[str, Any]]:
+        """Fetch repositories accessible to the authenticated user or token."""
+        url = "https://api.github.com/user/repos?sort=updated&per_page=100"
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, headers=self.headers, timeout=15.0)
+            if resp.status_code == 401:
+                # Return empty list or public fallback repos if token is invalid/not provided
+                return []
+            resp.raise_for_status()
+            return resp.json()
+
+    async def get_repository_pull_requests(self, owner: str, repo: str, state: str = "open") -> List[Dict[str, Any]]:
+        """Fetch Pull Requests for a specific repository."""
+        url = f"https://api.github.com/repos/{owner}/{repo}/pulls?state={state}&per_page=50"
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, headers=self.headers, timeout=15.0)
+            resp.raise_for_status()
+            return resp.json()
 
     async def get_pull_request(self, owner: str, repo: str, pr_number: int) -> Dict[str, Any]:
         """Fetch PR details from GitHub API."""
@@ -62,6 +81,18 @@ class GitHubService:
             resp.raise_for_status()
             return resp.text
 
+    async def get_file_content(self, owner: str, repo: str, filepath: str, ref: str = "main") -> Optional[str]:
+        """Fetch raw source file content from GitHub API."""
+        url = f"https://raw.githubusercontent.com/{owner}/{repo}/{ref}/{filepath}"
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(url, headers=self.headers, timeout=10.0)
+                if resp.status_code == 200:
+                    return resp.text
+        except Exception as e:
+            logger.warning(f"Could not fetch source file content for {filepath}: {str(e)}")
+        return None
+
     async def create_issue_comment(self, owner: str, repo: str, pr_number: int, body: str) -> Dict[str, Any]:
         """Post a comment on a PR issue thread."""
         url = f"https://api.github.com/repos/{owner}/{repo}/issues/{pr_number}/comments"
@@ -76,7 +107,7 @@ class GitHubService:
         """Create commit status on GitHub PR commit."""
         url = f"https://api.github.com/repos/{owner}/{repo}/statuses/{sha}"
         payload = {
-            "state": state,  # error, failure, pending, success
+            "state": state,
             "description": description[:140],
             "context": context,
         }

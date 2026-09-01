@@ -1,6 +1,6 @@
 import datetime
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
@@ -10,6 +10,8 @@ from prism.analysis.code_quality import CodeQualityAnalyzer
 from prism.analysis.security import SecurityAnalyzer
 from prism.analysis.testing import TestingAnalyzer
 from prism.analysis.complexity import ComplexityAnalyzer
+from prism.analysis.architecture import ArchitectureAnalyzer
+from prism.analysis.dependency import DependencyAnalyzer
 from prism.analysis.ai_review import AIReviewer
 from prism.analysis.deduplicator import FindingDeduplicator
 from prism.analysis.risk_scoring import RiskScoringEngine
@@ -19,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 class AnalysisOrchestrator:
-    """Orchestrates end-to-end PR analysis pipeline."""
+    """Orchestrates 10-layer PR risk intelligence analysis pipeline."""
 
     def __init__(self, db: Session, openai_api_key: Optional[str] = None):
         self.db = db
@@ -36,10 +38,11 @@ class AnalysisOrchestrator:
         base_branch: str,
         commit_sha: str,
         raw_diff: str,
+        source_context: Optional[str] = None,
     ) -> AnalysisRun:
         full_repo_name = f"{repo_owner}/{repo_name}"
 
-        # 1. Ensure Repository record
+        # 1. GitHub metadata / Repository record creation
         repo = self.db.query(Repository).filter(Repository.full_name == full_repo_name).first()
         if not repo:
             repo = Repository(full_name=full_repo_name, owner=repo_owner, name=repo_name, default_branch=base_branch)
@@ -47,11 +50,13 @@ class AnalysisOrchestrator:
             self.db.commit()
             self.db.refresh(repo)
 
-        # 2. Ensure PullRequest record with concurrency protection
+        # 2. PullRequest record with concurrency handling
         pr = self.db.query(PullRequest).filter(
             PullRequest.repository_id == repo.id,
             PullRequest.pr_number == pr_number
         ).first()
+
+        now_utc = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
 
         if not pr:
             try:
@@ -75,7 +80,7 @@ class AnalysisOrchestrator:
             pr.title = pr_title
             pr.head_branch = head_branch
             pr.base_branch = base_branch
-            pr.updated_at = datetime.datetime.utcnow()
+            pr.updated_at = now_utc
             self.db.commit()
 
         self.db.refresh(pr)
@@ -91,36 +96,47 @@ class AnalysisOrchestrator:
         self.db.refresh(analysis_run)
 
         try:
-            # 4. Parse diff
+            # 4. Diff Analysis
             file_diffs = DiffAnalyzer.parse_patch(raw_diff)
 
-            # Metrics
             total_additions = sum(f.additions for f in file_diffs)
             total_deletions = sum(f.deletions for f in file_diffs)
             changed_files_count = len(file_diffs)
             sensitive_files = sum(
                 1 for f in file_diffs
-                if any(kw in f.new_path.lower() for kw in ["auth", "security", "migration", "db", "docker", "k8s", "ci"])
+                if any(kw in f.new_path.lower() for kw in ["auth", "security", "payment", "billing", "migration", "db", "docker", "k8s", "ci"])
             )
 
-            # 5. Static Analyzers
+            # 5. Deterministic Analyzers (Quality, Security, Testing, Complexity, Architecture, Dependency)
             quality_findings = CodeQualityAnalyzer.analyze(file_diffs)
             security_findings = SecurityAnalyzer.analyze(file_diffs)
             testing_result = TestingAnalyzer.analyze(file_diffs)
             complexity_findings = ComplexityAnalyzer.analyze(file_diffs)
+            architecture_findings = ArchitectureAnalyzer.analyze(file_diffs)
+            dependency_findings = DependencyAnalyzer.analyze(file_diffs)
 
             static_findings: List[FindingDTO] = (
-                quality_findings + security_findings + testing_result["findings"] + complexity_findings
+                quality_findings
+                + security_findings
+                + testing_result["findings"]
+                + complexity_findings
+                + architecture_findings
+                + dependency_findings
             )
 
-            # 6. AI Intelligence Analysis
+            # 6. AI Reasoning Layer
             pr_metadata = {
                 "title": pr_title,
                 "author": pr_author,
                 "head_branch": head_branch,
                 "base_branch": base_branch,
             }
-            ai_res = await self.ai_reviewer.analyze_pr(pr_metadata, raw_diff, static_findings)
+            ai_res = await self.ai_reviewer.analyze_pr(
+                pr_metadata=pr_metadata,
+                raw_diff=raw_diff,
+                static_findings=static_findings,
+                source_context=source_context
+            )
 
             ai_findings: List[FindingDTO] = [
                 FindingDTO(
@@ -138,10 +154,10 @@ class AnalysisOrchestrator:
                 for f in ai_res.get("ai_findings", [])
             ]
 
-            # 7. Deduplicate & filter findings
+            # 7. Deduplication & Prioritization
             all_findings = FindingDeduplicator.deduplicate_and_filter(static_findings + ai_findings)
 
-            # 8. Risk Scoring Engine
+            # 8. Risk Aggregation & Scoring
             metrics_dict = {
                 "additions": total_additions,
                 "deletions": total_deletions,
@@ -163,9 +179,8 @@ class AnalysisOrchestrator:
             analysis_run.summary = ai_res.get("summary", "Analysis completed successfully.")
             analysis_run.merge_recommendation = ai_res.get("merge_recommendation", "REVIEW_REQUIRED")
             analysis_run.metrics = metrics_dict
-            analysis_run.completed_at = datetime.datetime.utcnow()
+            analysis_run.completed_at = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
 
-            # Save Risk Score details
             risk_score_obj = RiskScore(
                 analysis_run_id=analysis_run.id,
                 score=risk_res.score,
@@ -174,7 +189,6 @@ class AnalysisOrchestrator:
             )
             self.db.add(risk_score_obj)
 
-            # Save Findings
             for f in all_findings:
                 finding_obj = Finding(
                     analysis_run_id=analysis_run.id,

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PRISM AI — Engineering Risk Intelligence</title>
+  <title>PRISM AI — Advanced Engineering Risk Intelligence</title>
   <style>
     :root {
       --bg-dark: #0f172a;
@@ -12,6 +12,7 @@
       --text-main: #f8fafc;
       --text-muted: #94a3b8;
       --accent-blue: #38bdf8;
+      --accent-hover: #0284c7;
       --risk-low: #10b981;
       --risk-mod: #3b82f6;
       --risk-elev: #f59e0b;
@@ -46,6 +47,52 @@
       max-width: 1300px;
       margin: 2rem auto;
       padding: 0 1.5rem;
+    }
+    .github-toolbar {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 1rem 1.5rem;
+      margin-bottom: 2rem;
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+    .form-group label {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+    input, select {
+      background: #0f172a;
+      border: 1px solid var(--card-border);
+      color: var(--text-main);
+      padding: 0.5rem 0.75rem;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      min-width: 180px;
+    }
+    button.btn-primary {
+      background: var(--accent-blue);
+      color: #0b1120;
+      font-weight: 700;
+      border: none;
+      padding: 0.6rem 1.25rem;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.2s ease;
+      margin-top: auto;
+    }
+    button.btn-primary:hover {
+      background: var(--accent-hover);
+      color: #fff;
     }
     .grid-overview {
       display: grid;
@@ -94,6 +141,7 @@
       display: flex;
       gap: 0.75rem;
       margin-bottom: 1.5rem;
+      flex-wrap: wrap;
     }
     .filter-btn {
       background: var(--card-bg);
@@ -151,6 +199,11 @@
       color: var(--text-muted);
       margin-right: 0.5rem;
     }
+    .spinner {
+      display: none;
+      font-size: 0.9rem;
+      color: var(--accent-blue);
+    }
   </style>
 </head>
 <body>
@@ -158,64 +211,122 @@
   <div class="header">
     <div class="logo">
       <span>🔷 PRISM</span>
-      <span style="font-size: 0.85rem; color: var(--text-muted); font-weight: normal;">Pull Request Engineering Intelligence</span>
+      <span style="font-size: 0.85rem; color: var(--text-muted); font-weight: normal;">Advanced Engineering Risk Intelligence Platform</span>
     </div>
     <div id="repo-pr-info" style="color: var(--text-muted); font-size: 0.9rem;">
-      Loading PR info...
+      Ready for real GitHub PR analysis
     </div>
   </div>
 
   <div class="container">
+    <!-- GitHub Selector Toolbar -->
+    <div class="github-toolbar">
+      <div class="form-group">
+        <label>Repository Owner</label>
+        <input type="text" id="owner-input" placeholder="e.g. octocat" value="octocat">
+      </div>
+      <div class="form-group">
+        <label>Repository Name</label>
+        <input type="text" id="repo-input" placeholder="e.g. Hello-World" value="Hello-World">
+      </div>
+      <div class="form-group">
+        <label>PR Number</label>
+        <input type="number" id="pr-input" placeholder="e.g. 1" value="1">
+      </div>
+      <button class="btn-primary" onclick="runGitHubAnalysis()">Analyze GitHub PR</button>
+      <div id="loading-spinner" class="spinner">⏳ Analyzing PR layers...</div>
+    </div>
+
+    <!-- Overview Grid -->
     <div class="grid-overview">
       <div class="card risk-score-display">
         <div style="text-transform: uppercase; font-size: 0.8rem; letter-spacing: 1px; color: var(--text-muted);">Overall Risk Score</div>
         <div class="score-circle" id="risk-score-val">--</div>
-        <div id="risk-level-badge" class="risk-badge">ANALYZING</div>
+        <div id="risk-level-badge" class="risk-badge">READY</div>
         <div style="margin-top: 1.5rem; text-align: left;">
-          <strong style="font-size: 0.9rem;">Recommendation:</strong>
+          <strong style="font-size: 0.9rem;">Merge Recommendation:</strong>
           <div id="merge-rec" style="font-size: 1.1rem; font-weight: bold; color: var(--accent-blue); margin-top: 0.25rem;">PENDING</div>
         </div>
       </div>
 
       <div class="card">
-        <h3 style="margin-top: 0;">AI Engineering Risk Summary</h3>
-        <p id="ai-summary" style="color: var(--text-muted); line-height: 1.5;">Fetching analysis summary...</p>
+        <h3 style="margin-top: 0;">PRISM Engineering Risk Report</h3>
+        <p id="ai-summary" style="color: var(--text-muted); line-height: 1.5;">Select a GitHub repository and PR number above, then click 'Analyze GitHub PR' to generate an engineering intelligence report.</p>
 
-        <h4 style="margin-bottom: 0.5rem;">Key Risk Drivers</h4>
+        <h4 style="margin-bottom: 0.5rem;">Key Engineering Risk Drivers</h4>
         <ul id="drivers-list" class="drivers-list">
-          <li>Analyzing diff patterns...</li>
+          <li>No analysis executed yet.</li>
         </ul>
       </div>
     </div>
 
+    <!-- Filter Buttons -->
     <div class="filter-bar">
       <button class="filter-btn active" onclick="filterCategory('all', this)">All Findings</button>
       <button class="filter-btn" onclick="filterCategory('security', this)">Security</button>
-      <button class="filter-btn" onclick="filterCategory('code_quality', this)">Code Quality</button>
+      <button class="filter-btn" onclick="filterCategory('architecture', this)">Architecture</button>
       <button class="filter-btn" onclick="filterCategory('testing', this)">Testing</button>
+      <button class="filter-btn" onclick="filterCategory('dependency', this)">Dependencies</button>
+      <button class="filter-btn" onclick="filterCategory('code_quality', this)">Code Quality</button>
       <button class="filter-btn" onclick="filterCategory('complexity', this)">Complexity</button>
     </div>
 
     <div id="findings-container">
-      <!-- Finding cards populated via JavaScript -->
+      <!-- Finding cards -->
     </div>
   </div>
 
   <script>
     let currentRun = null;
 
+    async function runGitHubAnalysis() {
+      const owner = document.getElementById('owner-input').value.trim();
+      const repo = document.getElementById('repo-input').value.trim();
+      const prNumber = parseInt(document.getElementById('pr-input').value.trim());
+
+      if (!owner || !repo || isNaN(prNumber)) {
+        alert("Please enter valid Owner, Repo, and PR Number.");
+        return;
+      }
+
+      const spinner = document.getElementById('loading-spinner');
+      spinner.style.display = 'inline-block';
+
+      try {
+        const resp = await fetch('/api/analyze/github', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ owner, repo, pr_number: prNumber })
+        });
+
+        if (!resp.ok) {
+          const errData = await resp.json();
+          alert("Analysis Error: " + (errData.detail || "Failed to analyze PR"));
+          spinner.style.display = 'none';
+          return;
+        }
+
+        currentRun = await resp.json();
+        renderDashboard(currentRun);
+      } catch (e) {
+        console.error(e);
+        alert("Network or server error while running analysis.");
+      } finally {
+        spinner.style.display = 'none';
+      }
+    }
+
     async function loadAnalysis() {
       const urlParams = new URLSearchParams(window.location.search);
-      const analysisId = urlParams.get('id') || '1';
+      const analysisId = urlParams.get('id');
+      if (!analysisId) return;
 
       try {
         const resp = await fetch(`/api/analyses/${analysisId}`);
-        if (!resp.ok) {
-          document.getElementById('ai-summary').innerText = "No analysis found with ID " + analysisId + ". Run a PR analysis first!";
-          return;
+        if (resp.ok) {
+          currentRun = await resp.json();
+          renderDashboard(currentRun);
         }
-        currentRun = await resp.json();
-        renderDashboard(currentRun);
       } catch (e) {
         console.error(e);
       }

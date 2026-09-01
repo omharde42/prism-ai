@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from typing import List, Dict, Any
-from prism.analysis.types import FindingDTO
+from prism.analysis.types import FindingDTO, SEVERITY_WEIGHTS
 
 
 @dataclass
@@ -11,7 +11,7 @@ class RiskResult:
 
 
 class RiskScoringEngine:
-    """Calculates explainable engineering risk score (0-100) and risk level."""
+    """Calculates explainable engineering risk score (0-100) combining security, complexity, architecture, testing gaps, dependency risk, change scope, confidence, and critical path impact."""
 
     @staticmethod
     def calculate_risk(
@@ -22,34 +22,40 @@ class RiskScoringEngine:
         score = 0.0
         drivers: List[str] = []
 
-        # 1. Severity weight accumulated from findings
-        severity_weights = {
-            "critical": 30.0,
-            "high": 15.0,
-            "medium": 7.0,
-            "low": 2.0
-        }
-
         finding_points = 0.0
         sec_count = 0
         crit_count = 0
+        arch_count = 0
+        dep_count = 0
 
         for f in findings:
-            weight = severity_weights.get(f.severity.lower(), 2.0) * f.confidence
+            weight = SEVERITY_WEIGHTS.get(f.severity.lower(), 1.0) * f.confidence * 7.5
             finding_points += weight
-            if f.category == "security":
+            cat = f.category.lower()
+            sev = f.severity.lower()
+
+            if cat == "security":
                 sec_count += 1
-            if f.severity.lower() == "critical":
+            elif cat == "architecture":
+                arch_count += 1
+            elif cat == "dependency":
+                dep_count += 1
+
+            if sev == "critical":
                 crit_count += 1
 
-        score += min(finding_points, 60.0)
+        score += min(finding_points, 55.0)
 
         if crit_count > 0:
             drivers.append(f"{crit_count} CRITICAL severity finding(s) detected")
         if sec_count > 0:
-            drivers.append(f"{sec_count} Security risk finding(s) identified")
+            drivers.append(f"{sec_count} Security vulnerability finding(s) identified")
+        if arch_count > 0:
+            drivers.append(f"{arch_count} Architectural impact risk(s) identified")
+        if dep_count > 0:
+            drivers.append(f"{dep_count} Dependency risk finding(s) identified")
 
-        # 2. Scope & change size weights
+        # Scope & change size
         additions = metrics.get("additions", 0)
         files_changed = metrics.get("changed_files", 0)
 
@@ -60,7 +66,7 @@ class RiskScoringEngine:
             score += 8.0
             drivers.append(f"Moderate PR scope ({files_changed} files modified, +{additions} lines)")
 
-        # 3. Testing gaps
+        # Testing gaps
         testing_level = metrics.get("testing_level", "NO_TESTS_REQUIRED")
         if testing_level == "TESTS_REQUIRED":
             score += 15.0
@@ -69,17 +75,22 @@ class RiskScoringEngine:
             score += 7.0
             drivers.append("No corresponding test updates included")
 
-        # 4. Sensitive scope (auth / db migrations / infrastructure)
+        # Sensitive critical paths (auth / db migrations / infrastructure)
         sensitive_files = metrics.get("sensitive_files_changed", 0)
         if sensitive_files > 0:
             score += 10.0
-            drivers.append(f"{sensitive_files} security/auth/DB sensitive file(s) modified")
+            drivers.append(f"{sensitive_files} sensitive file(s) modified (auth/DB/infra)")
 
-        # 5. AI score modifier
+        # Compound risk interaction check (e.g., auth/DB + missing tests)
+        if (sec_count > 0 or arch_count > 0 or sensitive_files > 0) and testing_level == "TESTS_REQUIRED":
+            score += 10.0
+            drivers.append("Compound High Risk: Sensitive architectural/security changes coupled with missing tests")
+
+        # AI score modifier
         score += ai_modifier
         if ai_modifier != 0:
             sign = f"+{ai_modifier}" if ai_modifier > 0 else str(ai_modifier)
-            drivers.append(f"AI intelligence risk adjustment ({sign} points)")
+            drivers.append(f"AI intelligence risk interaction adjustment ({sign} points)")
 
         # Clamp score between 0 and 100
         final_score = max(0.0, min(100.0, round(score, 1)))
@@ -97,6 +108,6 @@ class RiskScoringEngine:
             level = "LOW"
 
         if not drivers:
-            drivers.append("Small diff with clean static quality checks")
+            drivers.append("Small diff footprint with clean quality checks")
 
         return RiskResult(score=final_score, risk_level=level, drivers=drivers)
