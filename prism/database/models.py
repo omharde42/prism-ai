@@ -58,6 +58,12 @@ class AnalysisRun(Base):
     summary = Column(Text, nullable=True)
     merge_recommendation = Column(String(100), default="APPROVE")  # APPROVE, REVIEW_REQUIRED, BLOCK
     metrics = Column(JSON, nullable=True)  # { "changed_files": 5, "additions": 100, "deletions": 20 }
+    parent_analysis_id = Column(Integer, ForeignKey("analysis_runs.id"), nullable=True, index=True)
+    risk_trend = Column(String(50), default="STABLE")  # IMPROVING, STABLE, RISKIER
+    score_delta = Column(Float, default=0.0)
+    blast_radius = Column(String(50), default="LOW")  # LOW, MEDIUM, HIGH, CRITICAL
+    dimension_scores = Column(JSON, nullable=True)  # { "security": 90, "code_quality": 85, "testing": 70, "architecture": 80, "maintainability": 85, "overall_risk": 20 }
+    execution_metrics = Column(JSON, nullable=True)  # { "github_api_ms": 120, "static_analysis_ms": 15, "ai_latency_ms": 450, "total_ms": 600 }
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
@@ -82,6 +88,9 @@ class Finding(Base):
     impact = Column(Text, nullable=True)
     recommendation = Column(Text, nullable=True)
     evidence = Column(Text, nullable=True)
+    status = Column(String(50), default="OPEN", index=True)  # OPEN, RESOLVED, SUPPRESSED
+    user_feedback = Column(String(50), nullable=True)  # useful, false_positive, not_useful
+    symbol = Column(String(255), nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     analysis_run = relationship("AnalysisRun", back_populates="findings")

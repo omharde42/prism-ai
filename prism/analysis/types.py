@@ -22,6 +22,9 @@ class FindingDTO:
     impact: Optional[str] = None
     recommendation: Optional[str] = None
     evidence: Optional[str] = None
+    status: str = "OPEN"
+    symbol: Optional[str] = None
+    user_feedback: Optional[str] = None
 
     @property
     def priority_score(self) -> float:

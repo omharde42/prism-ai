@@ -111,9 +111,40 @@ class TestingAnalyzer:
                 evidence=f"Changed files: {[f.new_path for f in code_files_changed[:3]]}"
             ))
 
+        # Generate targeted test recommendations based on changed logic
+        recommendations: List[str] = []
+        if sensitive_code_files:
+            for s_file in sensitive_code_files[:3]:
+                fname = s_file.new_path.lower()
+                if "auth" in fname or "token" in fname:
+                    recommendations.extend([
+                        "Test valid authentication token flow",
+                        "Test expired / invalid signature token rejection",
+                        "Test unauthenticated request rejection (401/403 status)",
+                        "Test refresh token validation flow"
+                    ])
+                elif "db" in fname or "schema" in fname or "migration" in fname:
+                    recommendations.extend([
+                        "Test schema backward compatibility with active queries",
+                        "Test database transaction rollback on error",
+                        "Test null value constraints on modified fields"
+                    ])
+                elif "payment" in fname or "billing" in fname:
+                    recommendations.extend([
+                        "Test payment transaction success path",
+                        "Test payment gateway failure & retry handling",
+                        "Test duplicate charge idempotency"
+                    ])
+        elif total_code_additions >= 50:
+            recommendations.append("Add unit test coverage for newly added control flow branches")
+
+        # Deduplicate recommendations while keeping order
+        unique_recs = list(dict.fromkeys(recommendations))
+
         return {
             "testing_level": testing_level,
             "findings": findings,
+            "test_recommendations": unique_recs,
             "summary": {
                 "code_files_changed": len(code_files_changed),
                 "test_files_changed": len(test_files_changed),
