@@ -60,6 +60,27 @@ class SecurityAnalyzer:
             is_auth_file = any(kw in fdiff.new_path.lower() for kw in ["auth", "login", "permission", "jwt", "session", "security", "middleware", "oauth"])
 
             for chunk in fdiff.chunks:
+                # 0. Security Regression Detection (Removed Security Checks)
+                for line_no, del_line in chunk.deleted_lines:
+                    del_s = del_line.strip()
+                    if any(pat in del_s for pat in ["is_authenticated", "login_required", "check_permission", "verify_jwt", "authorize", "authenticate"]):
+                        # Check if equivalent check was re-added in added lines
+                        readded = any(any(pat in add_line for pat in ["is_authenticated", "login_required", "check_permission", "verify_jwt", "authorize", "authenticate"]) for _, add_line in chunk.added_lines)
+                        if not readded:
+                            findings.append(FindingDTO(
+                                category="security",
+                                severity="critical",
+                                confidence=0.95,
+                                file=fdiff.new_path,
+                                line=line_no,
+                                title="SECURITY REGRESSION: Security Authorization Check Removed",
+                                description=f"A security validation or authentication check was removed: `{del_s[:80]}`",
+                                impact="CRITICAL SECURITY REGRESSION: Removing authorization checks allows unauthenticated or unauthorized access to sensitive application functionality.",
+                                recommendation="Restore authorization check or verify that access control is enforced by upstream middleware.",
+                                evidence=del_s,
+                                symbol="Authorization Check"
+                            ))
+
                 for line_no, line in chunk.added_lines:
                     s_line = line.strip()
                     if not s_line or s_line.startswith("#") or s_line.startswith("//"):

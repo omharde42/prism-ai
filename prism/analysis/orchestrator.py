@@ -12,7 +12,11 @@ from prism.analysis.testing import TestingAnalyzer
 from prism.analysis.complexity import ComplexityAnalyzer
 from prism.analysis.architecture import ArchitectureAnalyzer
 from prism.analysis.dependency import DependencyAnalyzer
+from prism.analysis.context_engine import ContextEngine
+from prism.analysis.db_risk import DatabaseRiskEngine
+from prism.analysis.api_contract import APIContractEngine
 from prism.analysis.ai_review import AIReviewer
+from prism.analysis.ai_verifier import AIVerifier
 from prism.analysis.deduplicator import FindingDeduplicator
 from prism.analysis.risk_scoring import RiskScoringEngine
 from prism.analysis.types import FindingDTO
@@ -96,24 +100,30 @@ class AnalysisOrchestrator:
         self.db.refresh(analysis_run)
 
         try:
-            # 4. Diff Analysis
+            start_time = datetime.datetime.now(datetime.timezone.utc)
+
+            # 4. Diff Analysis & Codebase Context Engine
             file_diffs = DiffAnalyzer.parse_patch(raw_diff)
+            context_impact = ContextEngine.calculate_impact(file_diffs)
+            symbols = ContextEngine.extract_symbols(file_diffs)
+            rel_context = ContextEngine.build_relevant_context(file_diffs)
 
             total_additions = sum(f.additions for f in file_diffs)
             total_deletions = sum(f.deletions for f in file_diffs)
             changed_files_count = len(file_diffs)
-            sensitive_files = sum(
-                1 for f in file_diffs
-                if any(kw in f.new_path.lower() for kw in ["auth", "security", "payment", "billing", "migration", "db", "docker", "k8s", "ci"])
-            )
+            sensitive_files = len(context_impact.get("sensitive_files_affected", []))
 
-            # 5. Deterministic Analyzers (Quality, Security, Testing, Complexity, Architecture, Dependency)
+            # 5. Multi-Engine Deterministic Layer
+            static_start = datetime.datetime.now(datetime.timezone.utc)
             quality_findings = CodeQualityAnalyzer.analyze(file_diffs)
             security_findings = SecurityAnalyzer.analyze(file_diffs)
             testing_result = TestingAnalyzer.analyze(file_diffs)
             complexity_findings = ComplexityAnalyzer.analyze(file_diffs)
             architecture_findings = ArchitectureAnalyzer.analyze(file_diffs)
             dependency_findings = DependencyAnalyzer.analyze(file_diffs)
+            db_risk_findings = DatabaseRiskEngine.analyze(file_diffs)
+            api_contract_findings = APIContractEngine.analyze(file_diffs)
+            static_duration_ms = (datetime.datetime.now(datetime.timezone.utc) - static_start).total_seconds() * 1000.0
 
             static_findings: List[FindingDTO] = (
                 quality_findings
@@ -122,9 +132,12 @@ class AnalysisOrchestrator:
                 + complexity_findings
                 + architecture_findings
                 + dependency_findings
+                + db_risk_findings
+                + api_contract_findings
             )
 
-            # 6. AI Reasoning Layer
+            # 6. AI Reasoning & Verification Layer
+            ai_start = datetime.datetime.now(datetime.timezone.utc)
             pr_metadata = {
                 "title": pr_title,
                 "author": pr_author,
@@ -135,10 +148,11 @@ class AnalysisOrchestrator:
                 pr_metadata=pr_metadata,
                 raw_diff=raw_diff,
                 static_findings=static_findings,
-                source_context=source_context
+                source_context=source_context or rel_context
             )
+            ai_duration_ms = (datetime.datetime.now(datetime.timezone.utc) - ai_start).total_seconds() * 1000.0
 
-            ai_findings: List[FindingDTO] = [
+            ai_findings_raw: List[FindingDTO] = [
                 FindingDTO(
                     category=f["category"],
                     severity=f["severity"],
@@ -150,20 +164,26 @@ class AnalysisOrchestrator:
                     impact=f.get("impact"),
                     recommendation=f.get("recommendation"),
                     evidence=f.get("evidence"),
+                    symbol=f.get("symbol"),
                 )
                 for f in ai_res.get("ai_findings", [])
             ]
 
+            # Cross-examine AI findings to filter hallucinations
+            ai_findings = AIVerifier.verify_findings(ai_findings_raw, file_diffs)
+
             # 7. Deduplication & Prioritization
             all_findings = FindingDeduplicator.deduplicate_and_filter(static_findings + ai_findings)
 
-            # 8. Risk Aggregation & Scoring
+            # 8. Risk Aggregation & Scoring Engine
             metrics_dict = {
                 "additions": total_additions,
                 "deletions": total_deletions,
                 "changed_files": changed_files_count,
                 "sensitive_files_changed": sensitive_files,
                 "testing_level": testing_result["testing_level"],
+                "test_recommendations": testing_result.get("test_recommendations", []),
+                "symbols_changed_count": len(symbols),
             }
 
             risk_res = RiskScoringEngine.calculate_risk(
@@ -172,12 +192,45 @@ class AnalysisOrchestrator:
                 ai_modifier=ai_res.get("risk_score_modifier", 0),
             )
 
-            # 9. Persist results in Database
+            # 9. History Comparison & Risk Trend Detection
+            prev_run = self.db.query(AnalysisRun).filter(
+                AnalysisRun.pull_request_id == pr.id,
+                AnalysisRun.id != analysis_run.id,
+                AnalysisRun.status == "completed"
+            ).order_by(AnalysisRun.id.desc()).first()
+
+            parent_id = prev_run.id if prev_run else None
+            score_delta = 0.0
+            risk_trend = "STABLE"
+
+            if prev_run:
+                score_delta = round(risk_res.score - prev_run.overall_risk_score, 1)
+                if score_delta <= -3.0:
+                    risk_trend = "IMPROVING"
+                elif score_delta >= 3.0:
+                    risk_trend = "RISKIER"
+                else:
+                    risk_trend = "STABLE"
+
+            total_duration_ms = (datetime.datetime.now(datetime.timezone.utc) - start_time).total_seconds() * 1000.0
+            execution_metrics = {
+                "static_analysis_ms": round(static_duration_ms, 2),
+                "ai_latency_ms": round(ai_duration_ms, 2),
+                "total_ms": round(total_duration_ms, 2),
+            }
+
+            # 10. Persist results in Database
             analysis_run.status = "completed"
             analysis_run.overall_risk_score = risk_res.score
             analysis_run.risk_level = risk_res.risk_level
             analysis_run.summary = ai_res.get("summary", "Analysis completed successfully.")
             analysis_run.merge_recommendation = ai_res.get("merge_recommendation", "REVIEW_REQUIRED")
+            analysis_run.parent_analysis_id = parent_id
+            analysis_run.score_delta = score_delta
+            analysis_run.risk_trend = risk_trend
+            analysis_run.blast_radius = context_impact["blast_radius"]
+            analysis_run.dimension_scores = risk_res.dimension_scores
+            analysis_run.execution_metrics = execution_metrics
             analysis_run.metrics = metrics_dict
             analysis_run.completed_at = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
 
@@ -202,6 +255,9 @@ class AnalysisOrchestrator:
                     impact=f.impact,
                     recommendation=f.recommendation,
                     evidence=f.evidence,
+                    status=f.status,
+                    symbol=f.symbol,
+                    user_feedback=f.user_feedback,
                 )
                 self.db.add(finding_obj)
 

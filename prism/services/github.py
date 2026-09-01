@@ -115,3 +115,79 @@ class GitHubService:
             resp = await client.post(url, headers=self.headers, json=payload, timeout=15.0)
             resp.raise_for_status()
             return resp.json()
+
+    async def create_pull_request_review_comment(
+        self, owner: str, repo: str, pr_number: int, commit_sha: str, body: str, path: str, line: int
+    ) -> Optional[Dict[str, Any]]:
+        """Post an inline review comment on a specific changed line in a PR."""
+        url = f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}/comments"
+        payload = {
+            "body": body,
+            "commit_id": commit_sha,
+            "path": path,
+            "line": line,
+            "side": "RIGHT",
+        }
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(url, headers=self.headers, json=payload, timeout=15.0)
+                if resp.status_code in [200, 201]:
+                    return resp.json()
+        except Exception as e:
+            logger.warning(f"Could not post inline review comment for {path}:{line}: {str(e)}")
+        return None
+
+    @staticmethod
+    def format_prism_markdown_summary(analysis_run: Any) -> str:
+        """Formats concise, high-signal Markdown summary for GitHub PR comments."""
+        score = round(analysis_run.overall_risk_score)
+        level = analysis_run.risk_level
+        rec = analysis_run.merge_recommendation
+        trend = getattr(analysis_run, "risk_trend", "STABLE")
+        blast = getattr(analysis_run, "blast_radius", "LOW")
+
+        trend_emoji = "🟢" if trend == "IMPROVING" else ("🔴" if trend == "RISKIER" else "🟡")
+
+        # Security & Testing assessment breakdown
+        findings = analysis_run.findings or []
+        high_conf_findings = [f for f in findings if f.confidence >= 0.8]
+        sec_findings = [f for f in high_conf_findings if f.category == "security"]
+        test_findings = [f for f in high_conf_findings if f.category == "testing"]
+
+        sec_status = f"⚠️ {len(sec_findings)} security issue(s)" if sec_findings else "✅ No high-confidence security risks"
+        test_status = f"⚠️ {len(test_findings)} test gap(s)" if test_findings else "✅ Test coverage sufficient"
+
+        lines = [
+            f"### 🔷 PRISM Risk Intelligence Report",
+            f"",
+            f"**Overall Risk Score:** `{score}/100` — **{level}** | **Trend:** {trend_emoji} `{trend}` | **Blast Radius:** `{blast}`",
+            f"**Recommendation:** `{rec}`",
+            f"",
+            f"#### 📊 Assessments",
+            f"- **Security:** {sec_status}",
+            f"- **Testing:** {test_status}",
+            f"",
+            f"#### 📝 Summary",
+            f"{analysis_run.summary or 'Analysis completed.'}",
+        ]
+
+        # Drivers
+        drivers = analysis_run.risk_score.drivers if analysis_run.risk_score else []
+        if drivers:
+            lines.append("\n#### 🎯 Key Risk Drivers")
+            for d in drivers[:4]:
+                lines.append(f"- {d}")
+
+        # High Confidence Top Findings
+        if high_conf_findings:
+            lines.append("\n#### 🔍 Key Actionable Findings")
+            for f in high_conf_findings[:5]:
+                loc = f" (`{f.file}:{f.line}`)" if f.file and f.line else ""
+                lines.append(f"- **[{f.severity.upper()}] {f.title}**{loc}")
+                if f.recommendation:
+                    lines.append(f"  - *Action:* {f.recommendation}")
+
+        lines.append("\n---")
+        lines.append("*Automated PR risk assessment by PRISM Engineering Intelligence.*")
+
+        return "\n".join(lines)

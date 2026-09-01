@@ -1,11 +1,23 @@
+import logging
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, Header, BackgroundTasks
+
+logger = logging.getLogger(__name__)
 from sqlalchemy.orm import Session
 
 from prism.database import get_db, PullRequest, AnalysisRun, Repository
 from prism.services.github import GitHubService
 from prism.analysis.orchestrator import AnalysisOrchestrator
-from prism.api.schemas import AnalysisRunResponse, ManualTriggerRequest, GitHubAnalyzeRequest
+from prism.database.models import Finding
+from prism.api.schemas import (
+    AnalysisRunResponse,
+    ManualTriggerRequest,
+    GitHubAnalyzeRequest,
+    FindingFeedbackRequest,
+    QualityGateResponse,
+    HistoryComparisonResponse,
+    FindingSchema,
+)
 
 router = APIRouter()
 
@@ -64,6 +76,23 @@ async def analyze_github_pr(
         raw_diff=raw_diff,
     )
 
+    # Post GitHub Feedback (Summary, Status & Inline comments for high-confidence findings)
+    try:
+        status_state = "failure" if run.overall_risk_score >= 80 or run.merge_recommendation == "BLOCK" else "success"
+        status_desc = f"PRISM Risk Score: {round(run.overall_risk_score)}/100 ({run.risk_level})"
+        await gh_service.create_commit_status(req.owner, req.repo, commit_sha, status_state, status_desc)
+
+        summary_md = GitHubService.format_prism_markdown_summary(run)
+        await gh_service.create_issue_comment(req.owner, req.repo, req.pr_number, summary_md)
+
+        # Inline findings publishing for high-confidence findings
+        high_conf_findings = [f for f in (run.findings or []) if f.confidence >= 0.8 and f.file and f.line]
+        for f in high_conf_findings[:5]:
+            inline_body = f"**[PRISM {f.severity.upper()}] {f.title}**\n\n{f.description}\n\n**Recommendation:** {f.recommendation or 'Review code location.'}"
+            await gh_service.create_pull_request_review_comment(req.owner, req.repo, req.pr_number, commit_sha, inline_body, f.file, f.line)
+    except Exception as e:
+        logger.warning(f"Failed to post GitHub PR feedback: {str(e)}")
+
     drivers = run.risk_score.drivers if run.risk_score else []
     pr_num = run.pull_request.pr_number if run.pull_request else None
     return AnalysisRunResponse(
@@ -76,10 +105,121 @@ async def analyze_github_pr(
         risk_level=run.risk_level,
         summary=run.summary,
         merge_recommendation=run.merge_recommendation,
+        parent_analysis_id=run.parent_analysis_id,
+        risk_trend=run.risk_trend,
+        score_delta=run.score_delta,
+        blast_radius=run.blast_radius,
+        dimension_scores=run.dimension_scores,
+        execution_metrics=run.execution_metrics,
         metrics=run.metrics,
         drivers=drivers,
         findings=run.findings,
     )
+
+
+@router.get("/analyses/{analysis_id}/quality-gate", response_model=QualityGateResponse)
+def evaluate_quality_gate(
+    analysis_id: int,
+    max_risk_score: float = 75.0,
+    block_on_critical: bool = True,
+    db: Session = Depends(get_db),
+):
+    """Evaluates configurable quality gate policy for a given PR analysis run."""
+    run = db.query(AnalysisRun).filter(AnalysisRun.id == analysis_id).first()
+    if not run:
+        raise HTTPException(status_code=404, detail="Analysis run not found")
+
+    findings = run.findings or []
+    crit_count = sum(1 for f in findings if f.severity.lower() == "critical")
+    high_count = sum(1 for f in findings if f.severity.lower() == "high")
+
+    passed = True
+    reasons = []
+
+    if run.overall_risk_score > max_risk_score:
+        passed = False
+        reasons.append(f"Overall risk score ({run.overall_risk_score}) exceeds maximum threshold ({max_risk_score})")
+
+    if block_on_critical and crit_count > 0:
+        passed = False
+        reasons.append(f"PR contains {crit_count} critical severity finding(s)")
+
+    reason_str = "All merge quality gates passed successfully." if passed else " | ".join(reasons)
+    return QualityGateResponse(
+        passed=passed,
+        status="PASSED" if passed else "FAILED",
+        reason=reason_str,
+        risk_score=run.overall_risk_score,
+        critical_findings_count=crit_count,
+        high_findings_count=high_count,
+    )
+
+
+@router.get("/analyses/{analysis_id}/history-comparison", response_model=HistoryComparisonResponse)
+def get_history_comparison(analysis_id: int, db: Session = Depends(get_db)):
+    """Compares current analysis run against its parent run to track risk trend and resolved/new findings."""
+    run = db.query(AnalysisRun).filter(AnalysisRun.id == analysis_id).first()
+    if not run:
+        raise HTTPException(status_code=404, detail="Analysis run not found")
+
+    prev_run = None
+    if run.parent_analysis_id:
+        prev_run = db.query(AnalysisRun).filter(AnalysisRun.id == run.parent_analysis_id).first()
+
+    if not prev_run:
+        return HistoryComparisonResponse(
+            current_run_id=run.id,
+            previous_run_id=None,
+            current_score=run.overall_risk_score,
+            previous_score=None,
+            score_delta=0.0,
+            risk_trend=run.risk_trend or "STABLE",
+            resolved_findings=[],
+            new_findings=[FindingSchema.model_validate(f) for f in (run.findings or [])],
+            remaining_findings=[],
+        )
+
+    curr_findings = run.findings or []
+    prev_findings = prev_run.findings or []
+
+    curr_keys = {(f.category, f.file or "", f.line or 0, f.title) for f in curr_findings}
+    prev_keys = {(f.category, f.file or "", f.line or 0, f.title) for f in prev_findings}
+
+    resolved = [FindingSchema.model_validate(f) for f in prev_findings if (f.category, f.file or "", f.line or 0, f.title) not in curr_keys]
+    new_items = [FindingSchema.model_validate(f) for f in curr_findings if (f.category, f.file or "", f.line or 0, f.title) not in prev_keys]
+    remaining = [FindingSchema.model_validate(f) for f in curr_findings if (f.category, f.file or "", f.line or 0, f.title) in prev_keys]
+
+    return HistoryComparisonResponse(
+        current_run_id=run.id,
+        previous_run_id=prev_run.id,
+        current_score=run.overall_risk_score,
+        previous_score=prev_run.overall_risk_score,
+        score_delta=run.score_delta,
+        risk_trend=run.risk_trend,
+        resolved_findings=resolved,
+        new_findings=new_items,
+        remaining_findings=remaining,
+    )
+
+
+@router.post("/findings/{finding_id}/feedback")
+def submit_finding_feedback(finding_id: int, req: FindingFeedbackRequest, db: Session = Depends(get_db)):
+    """Allows developers to mark findings as useful, false_positive, or resolved."""
+    finding = db.query(Finding).filter(Finding.id == finding_id).first()
+    if not finding:
+        raise HTTPException(status_code=404, detail="Finding not found")
+
+    finding.user_feedback = req.feedback
+    if req.status:
+        finding.status = req.status
+    elif req.feedback == "false_positive":
+        finding.status = "SUPPRESSED"
+    elif req.feedback == "resolved":
+        finding.status = "RESOLVED"
+
+    db.commit()
+    db.refresh(finding)
+    return {"status": "success", "finding_id": finding.id, "user_feedback": finding.user_feedback, "finding_status": finding.status}
 
 
 @router.post("/webhooks/github")
@@ -132,6 +272,17 @@ async def github_webhook(
         raw_diff=raw_diff,
     )
 
+    # Post GitHub Feedback asynchronously for webhook event
+    try:
+        status_state = "failure" if analysis_run.overall_risk_score >= 80 or analysis_run.merge_recommendation == "BLOCK" else "success"
+        status_desc = f"PRISM Risk Score: {round(analysis_run.overall_risk_score)}/100 ({analysis_run.risk_level})"
+        await gh_service.create_commit_status(owner, repo, commit_sha, status_state, status_desc)
+
+        summary_md = GitHubService.format_prism_markdown_summary(analysis_run)
+        await gh_service.create_issue_comment(owner, repo, pr_number, summary_md)
+    except Exception as e:
+        logger.warning(f"Failed to post webhook GitHub PR feedback: {str(e)}")
+
     return {"status": "success", "analysis_id": analysis_run.id, "risk_score": analysis_run.overall_risk_score}
 
 
@@ -165,6 +316,12 @@ async def trigger_manual_analysis(
         risk_level=run.risk_level,
         summary=run.summary,
         merge_recommendation=run.merge_recommendation,
+        parent_analysis_id=run.parent_analysis_id,
+        risk_trend=run.risk_trend,
+        score_delta=run.score_delta,
+        blast_radius=run.blast_radius,
+        dimension_scores=run.dimension_scores,
+        execution_metrics=run.execution_metrics,
         metrics=run.metrics,
         drivers=drivers,
         findings=run.findings,
@@ -189,6 +346,12 @@ def get_analysis_by_id(analysis_id: int, db: Session = Depends(get_db)):
         risk_level=run.risk_level,
         summary=run.summary,
         merge_recommendation=run.merge_recommendation,
+        parent_analysis_id=run.parent_analysis_id,
+        risk_trend=run.risk_trend,
+        score_delta=run.score_delta,
+        blast_radius=run.blast_radius,
+        dimension_scores=run.dimension_scores,
+        execution_metrics=run.execution_metrics,
         metrics=run.metrics,
         drivers=drivers,
         findings=run.findings,

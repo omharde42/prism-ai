@@ -243,8 +243,13 @@
         <div style="text-transform: uppercase; font-size: 0.8rem; letter-spacing: 1px; color: var(--text-muted);">Overall Risk Score</div>
         <div class="score-circle" id="risk-score-val">--</div>
         <div id="risk-level-badge" class="risk-badge">READY</div>
-        <div style="margin-top: 1.5rem; text-align: left;">
-          <strong style="font-size: 0.9rem;">Merge Recommendation:</strong>
+        <div id="risk-trend-badge" style="margin-top: 0.5rem; font-size: 0.85rem; font-weight: 600; color: var(--text-muted);">Trend: --</div>
+        <div style="margin-top: 1rem; text-align: left;">
+          <strong style="font-size: 0.85rem;">Blast Radius:</strong>
+          <span id="blast-radius-val" style="font-weight: bold; color: var(--accent-blue);">--</span>
+        </div>
+        <div style="margin-top: 0.5rem; text-align: left;">
+          <strong style="font-size: 0.85rem;">Merge Recommendation:</strong>
           <div id="merge-rec" style="font-size: 1.1rem; font-weight: bold; color: var(--accent-blue); margin-top: 0.25rem;">PENDING</div>
         </div>
       </div>
@@ -257,6 +262,30 @@
         <ul id="drivers-list" class="drivers-list">
           <li>No analysis executed yet.</li>
         </ul>
+
+        <h4 style="margin-top: 1rem; margin-bottom: 0.5rem;">Quality Dimension Scores (0-100)</h4>
+        <div id="dimension-scores-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.75rem;">
+          <div style="background: #0f172a; padding: 0.5rem; border-radius: 4px; text-align: center;">
+            <div style="font-size: 0.75rem; color: var(--text-muted);">SECURITY</div>
+            <div id="dim-sec" style="font-size: 1.1rem; font-weight: bold; color: var(--risk-low);">--</div>
+          </div>
+          <div style="background: #0f172a; padding: 0.5rem; border-radius: 4px; text-align: center;">
+            <div style="font-size: 0.75rem; color: var(--text-muted);">QUALITY</div>
+            <div id="dim-qual" style="font-size: 1.1rem; font-weight: bold; color: var(--accent-blue);">--</div>
+          </div>
+          <div style="background: #0f172a; padding: 0.5rem; border-radius: 4px; text-align: center;">
+            <div style="font-size: 0.75rem; color: var(--text-muted);">TESTING</div>
+            <div id="dim-test" style="font-size: 1.1rem; font-weight: bold; color: var(--risk-elev);">--</div>
+          </div>
+          <div style="background: #0f172a; padding: 0.5rem; border-radius: 4px; text-align: center;">
+            <div style="font-size: 0.75rem; color: var(--text-muted);">ARCHITECTURE</div>
+            <div id="dim-arch" style="font-size: 1.1rem; font-weight: bold; color: var(--accent-blue);">--</div>
+          </div>
+          <div style="background: #0f172a; padding: 0.5rem; border-radius: 4px; text-align: center;">
+            <div style="font-size: 0.75rem; color: var(--text-muted);">MAINTAINABILITY</div>
+            <div id="dim-maint" style="font-size: 1.1rem; font-weight: bold; color: var(--risk-low);">--</div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -342,6 +371,20 @@
 
       document.getElementById('merge-rec').innerText = run.merge_recommendation;
       document.getElementById('ai-summary').innerText = run.summary || "No summary available.";
+
+      const trend = run.risk_trend || 'STABLE';
+      const deltaStr = run.score_delta ? ` (${run.score_delta > 0 ? '+' : ''}${run.score_delta})` : '';
+      const trendEmoji = trend === 'IMPROVING' ? '🟢' : (trend === 'RISKIER' ? '🔴' : '🟡');
+      document.getElementById('risk-trend-badge').innerText = `Trend: ${trendEmoji} ${trend}${deltaStr}`;
+      document.getElementById('blast-radius-val').innerText = run.blast_radius || 'LOW';
+
+      if (run.dimension_scores) {
+        document.getElementById('dim-sec').innerText = Math.round(run.dimension_scores.security || 100);
+        document.getElementById('dim-qual').innerText = Math.round(run.dimension_scores.code_quality || 100);
+        document.getElementById('dim-test').innerText = Math.round(run.dimension_scores.testing || 100);
+        document.getElementById('dim-arch').innerText = Math.round(run.dimension_scores.architecture || 100);
+        document.getElementById('dim-maint').innerText = Math.round(run.dimension_scores.maintainability || 100);
+      }
 
       const driversUl = document.getElementById('drivers-list');
       driversUl.innerHTML = '';
@@ -447,8 +490,47 @@
           card.appendChild(evDiv);
         }
 
+        // Action Feedback Buttons
+        const fbDiv = document.createElement('div');
+        fbDiv.style.marginTop = '0.75rem';
+        fbDiv.style.display = 'flex';
+        fbDiv.style.gap = '0.5rem';
+
+        const usefulBtn = document.createElement('button');
+        usefulBtn.className = 'filter-btn';
+        usefulBtn.style.padding = '0.25rem 0.5rem';
+        usefulBtn.style.fontSize = '0.75rem';
+        usefulBtn.textContent = '👍 Useful';
+        usefulBtn.onclick = () => sendFeedback(f.id, 'useful');
+
+        const fpBtn = document.createElement('button');
+        fpBtn.className = 'filter-btn';
+        fpBtn.style.padding = '0.25rem 0.5rem';
+        fpBtn.style.fontSize = '0.75rem';
+        fpBtn.textContent = '🚫 False Positive';
+        fpBtn.onclick = () => sendFeedback(f.id, 'false_positive');
+
+        fbDiv.appendChild(usefulBtn);
+        fbDiv.appendChild(fpBtn);
+        card.appendChild(fbDiv);
+
         container.appendChild(card);
       });
+    }
+
+    async function sendFeedback(findingId, feedback) {
+      try {
+        const resp = await fetch(`/api/findings/${findingId}/feedback`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ feedback })
+        });
+        if (resp.ok) {
+          alert("Thank you for your feedback!");
+        }
+      } catch (e) {
+        console.error(e);
+      }
     }
 
     function filterCategory(category, btn) {
