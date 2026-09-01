@@ -36,6 +36,31 @@ class GitHubService:
         expected_signature = mac.hexdigest()
         return hmac.compare_digest(expected_signature, signature)
 
+    async def list_user_repositories(self, limit: int = 30) -> List[Dict[str, Any]]:
+        """List repositories accessible to the authenticated token / user."""
+        url = "https://api.github.com/user/repos"
+        params = {"sort": "updated", "per_page": limit, "type": "all"}
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, headers=self.headers, params=params, timeout=15.0)
+            if resp.status_code == 401 or not self.token:
+                # Fallback to public PRISM demo repository listing if unauthenticated
+                url_public = "https://api.github.com/orgs/github/repos"
+                resp_pub = await client.get(url_public, headers=self.headers, params={"per_page": 10}, timeout=15.0)
+                if resp_pub.status_code == 200:
+                    return resp_pub.json()
+                return []
+            resp.raise_for_status()
+            return resp.json()
+
+    async def list_pull_requests(self, owner: str, repo: str, state: str = "open", limit: int = 30) -> List[Dict[str, Any]]:
+        """List pull requests for a specific repository."""
+        url = f"https://api.github.com/repos/{owner}/{repo}/pulls"
+        params = {"state": state, "per_page": limit, "sort": "updated"}
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, headers=self.headers, params=params, timeout=15.0)
+            resp.raise_for_status()
+            return resp.json()
+
     async def get_pull_request(self, owner: str, repo: str, pr_number: int) -> Dict[str, Any]:
         """Fetch PR details from GitHub API."""
         url = f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}"

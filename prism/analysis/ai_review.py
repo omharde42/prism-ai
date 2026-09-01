@@ -49,17 +49,19 @@ class AIReviewer:
         ]
 
         prompt = f"""You are PRISM, an AI Pull Request Engineering Risk Intelligence Engine.
-Analyze the following PR and produce a structured JSON report.
+Analyze the following PR across security, testing, architecture, dependencies, and complex interactions, then produce a structured JSON report.
 
 PR Title: {pr_metadata.get('title', '')}
 Author: {pr_metadata.get('author', '')}
 Branch: {pr_metadata.get('head_branch', '')} -> {pr_metadata.get('base_branch', '')}
 
-Detected Static Findings:
+Detected Deterministic Analyzer Findings:
 {json.dumps(findings_summary, indent=2)}
 
 PR Raw Diff (Truncated):
 {truncated_diff}
+
+Identify risk interactions (e.g., auth modifications combined with DB migrations or missing tests) and actionable recommendations.
 
 Respond strictly in valid JSON format matching this schema:
 {{

@@ -161,11 +161,39 @@
       <span style="font-size: 0.85rem; color: var(--text-muted); font-weight: normal;">Pull Request Engineering Intelligence</span>
     </div>
     <div id="repo-pr-info" style="color: var(--text-muted); font-size: 0.9rem;">
-      Loading PR info...
+      Connected to GitHub
     </div>
   </div>
 
   <div class="container">
+    <!-- Real GitHub Integration Control Bar -->
+    <div class="card" style="margin-bottom: 2rem; border-color: var(--accent-blue);">
+      <h3 style="margin-top: 0; color: var(--accent-blue); font-size: 1.1rem; display: flex; align-items: center; gap: 0.5rem;">
+        <span>🐙 GitHub Repository & Pull Request Integration</span>
+      </h3>
+      <div style="display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; margin-top: 1rem;">
+        <div style="flex: 1; min-width: 250px;">
+          <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 0.25rem;">Select Repository</label>
+          <select id="repo-select" style="width: 100%; padding: 0.5rem; background: var(--bg-dark); color: #fff; border: 1px solid var(--card-border); border-radius: 4px;" onchange="onRepoSelected()">
+            <option value="">-- Select GitHub Repository --</option>
+          </select>
+        </div>
+
+        <div style="flex: 1; min-width: 250px;">
+          <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 0.25rem;">Select Pull Request</label>
+          <select id="pr-select" style="width: 100%; padding: 0.5rem; background: var(--bg-dark); color: #fff; border: 1px solid var(--card-border); border-radius: 4px;">
+            <option value="">-- Select Pull Request --</option>
+          </select>
+        </div>
+
+        <div style="align-self: flex-end;">
+          <button id="btn-analyze" style="padding: 0.55rem 1.25rem; background: var(--accent-blue); color: #000; font-weight: 700; border: none; border-radius: 4px; cursor: pointer;" onclick="triggerRealPRAnalysis()">
+            ⚡ Analyze PR
+          </button>
+        </div>
+      </div>
+      <div id="analysis-status-msg" style="margin-top: 0.75rem; font-size: 0.85rem; color: var(--text-muted);"></div>
+    </div>
     <div class="grid-overview">
       <div class="card risk-score-display">
         <div style="text-transform: uppercase; font-size: 0.8rem; letter-spacing: 1px; color: var(--text-muted);">Overall Risk Score</div>
@@ -204,18 +232,104 @@
   <script>
     let currentRun = null;
 
+    async function initGitHubSelector() {
+      try {
+        const resp = await fetch('/api/github/repos');
+        if (resp.ok) {
+          const repos = await resp.json();
+          const select = document.getElementById('repo-select');
+          select.innerHTML = '<option value="">-- Select GitHub Repository --</option>';
+          repos.forEach(r => {
+            const opt = document.createElement('option');
+            opt.value = `${r.owner}/${r.name}`;
+            opt.textContent = `${r.full_name} ${r.private ? '🔒' : ''}`;
+            select.appendChild(opt);
+          });
+        }
+      } catch (e) {
+        console.error('Error fetching repos:', e);
+      }
+    }
+
+    async function onRepoSelected() {
+      const repoVal = document.getElementById('repo-select').value;
+      const prSelect = document.getElementById('pr-select');
+      prSelect.innerHTML = '<option value="">-- Select Pull Request --</option>';
+
+      if (!repoVal) return;
+
+      const [owner, repo] = repoVal.split('/');
+      try {
+        const resp = await fetch(`/api/github/repos/${owner}/${repo}/pulls`);
+        if (resp.ok) {
+          const pulls = await resp.json();
+          pulls.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.number;
+            opt.textContent = `#${p.number}: ${p.title} (${p.author})`;
+            prSelect.appendChild(opt);
+          });
+          if (pulls.length === 0) {
+            prSelect.innerHTML = '<option value="">No open PRs found</option>';
+          }
+        }
+      } catch (e) {
+        console.error('Error fetching PRs:', e);
+      }
+    }
+
+    async function triggerRealPRAnalysis() {
+      const repoVal = document.getElementById('repo-select').value;
+      const prNum = document.getElementById('pr-select').value;
+      const statusMsg = document.getElementById('analysis-status-msg');
+      const btn = document.getElementById('btn-analyze');
+
+      if (!repoVal || !prNum) {
+        statusMsg.innerText = '⚠️ Please select both a repository and a pull request.';
+        statusMsg.style.color = 'var(--risk-elev)';
+        return;
+      }
+
+      const [owner, repo] = repoVal.split('/');
+      btn.disabled = true;
+      statusMsg.innerText = '⏳ Fetching real PR diff & running PRISM AI Intelligence analysis...';
+      statusMsg.style.color = 'var(--accent-blue)';
+
+      try {
+        const resp = await fetch('/api/github/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ owner, repo, pr_number: parseInt(prNum, 10) })
+        });
+
+        if (!resp.ok) {
+          const err = await resp.json();
+          throw new Error(err.detail || 'Analysis request failed');
+        }
+
+        currentRun = await resp.json();
+        statusMsg.innerText = '✅ Real PR analysis completed successfully!';
+        statusMsg.style.color = 'var(--risk-low)';
+        renderDashboard(currentRun);
+      } catch (e) {
+        statusMsg.innerText = `❌ Error: ${e.message}`;
+        statusMsg.style.color = 'var(--risk-crit)';
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
     async function loadAnalysis() {
+      await initGitHubSelector();
       const urlParams = new URLSearchParams(window.location.search);
       const analysisId = urlParams.get('id') || '1';
 
       try {
         const resp = await fetch(`/api/analyses/${analysisId}`);
-        if (!resp.ok) {
-          document.getElementById('ai-summary').innerText = "No analysis found with ID " + analysisId + ". Run a PR analysis first!";
-          return;
+        if (resp.ok) {
+          currentRun = await resp.json();
+          renderDashboard(currentRun);
         }
-        currentRun = await resp.json();
-        renderDashboard(currentRun);
       } catch (e) {
         console.error(e);
       }

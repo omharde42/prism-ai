@@ -10,6 +10,8 @@ from prism.analysis.code_quality import CodeQualityAnalyzer
 from prism.analysis.security import SecurityAnalyzer
 from prism.analysis.testing import TestingAnalyzer
 from prism.analysis.complexity import ComplexityAnalyzer
+from prism.analysis.architecture import ArchitectureAnalyzer
+from prism.analysis.dependency_risk import DependencyRiskAnalyzer
 from prism.analysis.ai_review import AIReviewer
 from prism.analysis.deduplicator import FindingDeduplicator
 from prism.analysis.risk_scoring import RiskScoringEngine
@@ -108,9 +110,16 @@ class AnalysisOrchestrator:
             security_findings = SecurityAnalyzer.analyze(file_diffs)
             testing_result = TestingAnalyzer.analyze(file_diffs)
             complexity_findings = ComplexityAnalyzer.analyze(file_diffs)
+            architecture_findings = ArchitectureAnalyzer.analyze(file_diffs)
+            dependency_findings = DependencyRiskAnalyzer.analyze(file_diffs)
 
             static_findings: List[FindingDTO] = (
-                quality_findings + security_findings + testing_result["findings"] + complexity_findings
+                quality_findings
+                + security_findings
+                + testing_result["findings"]
+                + complexity_findings
+                + architecture_findings
+                + dependency_findings
             )
 
             # 6. AI Intelligence Analysis

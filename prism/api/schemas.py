@@ -47,3 +47,9 @@ class ManualTriggerRequest(BaseModel):
     base_branch: str
     commit_sha: str
     diff: str
+
+
+class RealPRAnalyzeRequest(BaseModel):
+    owner: str
+    repo: str
+    pr_number: int

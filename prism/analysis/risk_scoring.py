@@ -69,11 +69,18 @@ class RiskScoringEngine:
             score += 7.0
             drivers.append("No corresponding test updates included")
 
-        # 4. Sensitive scope (auth / db migrations / infrastructure)
+        # 4. Sensitive scope & architectural impact
         sensitive_files = metrics.get("sensitive_files_changed", 0)
-        if sensitive_files > 0:
+        arch_findings = sum(1 for f in findings if f.category == "architecture")
+        dep_findings = sum(1 for f in findings if f.category == "dependencies")
+
+        if sensitive_files > 0 or arch_findings > 0:
             score += 10.0
-            drivers.append(f"{sensitive_files} security/auth/DB sensitive file(s) modified")
+            drivers.append(f"Architectural/sensitive scope modified ({sensitive_files} sensitive files, {arch_findings} architecture risks)")
+
+        if dep_findings > 0:
+            score += 5.0
+            drivers.append(f"{dep_findings} dependency risk finding(s) detected")
 
         # 5. AI score modifier
         score += ai_modifier
