@@ -26,6 +26,6 @@ DASHBOARD_DIR = os.path.join(os.path.dirname(__file__), "dashboard")
 def get_dashboard():
     dashboard_file = os.path.join(DASHBOARD_DIR, "index.html")
     if os.path.exists(dashboard_file):
-        with open(dashboard_file, "r") as f:
+        with open(dashboard_file, "r", encoding="utf-8") as f:
             return f.read()
     return "<h1>PRISM Intelligence Platform API</h1>"
